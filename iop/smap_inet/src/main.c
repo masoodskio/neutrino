@@ -1,7 +1,6 @@
 #include <intrman.h>
 #include <irx.h>
 #include <loadcore.h>
-#include <netdev.h>
 #include <smapregs.h>
 #include <stdio.h>
 #include <sysclib.h>
@@ -12,6 +11,7 @@
 #include "elf.h"
 #include "ioplib.h"
 #include "mprintf.h"
+#include "netdev.h"
 #include "smap.h"
 
 #define MODNAME "smap_inet_shim"
