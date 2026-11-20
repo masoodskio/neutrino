@@ -21,6 +21,7 @@ clean:
 	$(MAKE) -C iop/patch_membo   clean
 	$(MAKE) -C iop/patch_rc_uya  clean
 	$(MAKE) -C iop/smap          clean
+	$(MAKE) -C iop/smap_inet     clean
 	$(MAKE) -C iop/ministack     clean
 	$(MAKE) -C iop/udpbd         clean
 	$(MAKE) -C iop/udpfs         clean UDPFS_BD=1
@@ -54,6 +55,7 @@ all:
 	$(MAKE) -C iop/patch_membo   all DEBUG=$(IOPCORE_DEBUG)
 	$(MAKE) -C iop/patch_rc_uya  all DEBUG=$(IOPCORE_DEBUG)
 	$(MAKE) -C iop/smap          all DEBUG=$(IOPCORE_DEBUG)
+	$(MAKE) -C iop/smap_inet     all DEBUG=$(IOPCORE_DEBUG)
 	$(MAKE) -C iop/ministack     all DEBUG=$(IOPCORE_DEBUG)
 	$(MAKE) -C iop/udpbd         all DEBUG=$(IOPCORE_DEBUG)
 	$(MAKE) -C iop/udpfs         all DEBUG=$(IOPCORE_DEBUG) UDPFS_BD=1
@@ -88,6 +90,7 @@ copy:
 	cp iop/patch_rc_uya/irx/patch_rc_uya.irx   ee/loader/modules
 	cp iop/udpbd/irx/udpbd.irx                 ee/loader/modules
 	cp iop/smap/irx/smap.irx                   ee/loader/modules
+	cp iop/smap_inet/irx/smap_inet.irx         ee/loader/modules
 	cp iop/ministack/irx/ministack.irx         ee/loader/modules
 	cp iop/udpfs/irx/udpfs_bd.irx              ee/loader/modules
 	cp iop/udpfs/irx/udpfs_ioman.irx           ee/loader/modules

@@ -2,6 +2,7 @@
 #define MAIN_H
 
 
+#include <stdint.h>
 #include <thbase.h>
 #include "mprintf.h"
 
@@ -36,6 +37,9 @@ struct SmapDriverData
 /* Function prototypes */
 int smap_init(int argc, char *argv[]);
 int SMAPGetMACAddress(u8 *buffer);
+void smap_get_link_status(uint8_t *link_status, uint8_t *link_mode);
+void smap_set_multicast_hash(const uint32_t hash[4]);
+void smap_set_rx_mode(uint32_t rx_mode_flags);
 
 
 #endif
