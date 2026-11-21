@@ -1,4 +1,4 @@
-/* Small diagnostic wrapper; no netdev export mutation. */
+/* Diagnostic wrapper; allocation behavior is unchanged. */
 #include <intrman.h>
 #include <irx.h>
 #include <loadcore.h>
@@ -32,10 +32,20 @@ static void diag_memory(unsigned int *total, unsigned int *largest)
 static int diag_control(void *priv, int code, void *ptr, int len)
 {
     int result = diag_control_original(priv, code, ptr, len);
-    /* Limit synchronous output and do not dereference unknown control buffers. */
     if (diag_control_count++ < 32)
         printf("DIAG ctl=%08x len=%d rv=%d\n", (unsigned int)code, len, result);
     return result;
+}
+
+static unsigned int diag_u32(const unsigned char *p)
+{
+    return (unsigned int)p[0] | ((unsigned int)p[1] << 8) |
+        ((unsigned int)p[2] << 16) | ((unsigned int)p[3] << 24);
+}
+
+static unsigned int diag_u16(const unsigned char *p)
+{
+    return (unsigned int)p[0] | ((unsigned int)p[1] << 8);
 }
 
 static int diag_load(void *ptr)
@@ -44,19 +54,45 @@ static int diag_load(void *ptr)
     int result;
     diag_memory(&total_before, &max_before);
     result = diag_load_original(ptr);
-    if (result < 0) {
-        char name[48];
-        unsigned int i;
-        /* Same IRX-name location used by the existing buffer interception. */
-        elf_header_t *eh = (elf_header_t *)ptr;
-        elf_pheader_t *ph = (elf_pheader_t *)((unsigned char *)ptr + eh->phoff);
-        const char *src = (const char *)ptr + ph->offset + 0x1a;
-        for (i = 0; i < sizeof(name) - 1 && src[i] >= 32 && src[i] <= 126; i++)
-            name[i] = src[i];
-        name[i] = 0;
-        diag_memory(&total_after, &max_after);
-        printf("DIAG load fail name=%s rv=%d\n", name, result);
-        printf("DIAG memory before total=%u max=%u after total=%u max=%u\n", total_before, max_before, total_after, max_after);
+    diag_memory(&total_after, &max_after);
+    printf("DIAG load rv=%d before=%u largest=%u after=%u largest=%u\n",
+        result, total_before, max_before, total_after, max_after);
+    /* Input has no length argument: inspect only loader-accepted ELF headers
+     * or the same header layout already assumed by the interception hook.
+     * Segment values describe the image, not an exact allocator request. */
+    if (ptr != NULL) {
+        const unsigned char *base = (const unsigned char *)ptr;
+        if (base[0] == 0x7f && base[1] == 'E' && base[2] == 'L' &&
+            base[3] == 'F' && base[4] == 1 && base[5] == 1) {
+            unsigned int off = diag_u32(base + 28);
+            unsigned int step = diag_u16(base + 42);
+            unsigned int count = diag_u16(base + 44);
+            unsigned int j;
+            if (step >= 32 && step <= 256 && count <= 32 &&
+                off >= 52 && off <= 4096 && off + step * count <= 8192) {
+                for (j = 0; j < count; j++) {
+                    const unsigned char *ph = base + off + step * j;
+                    unsigned int type = diag_u32(ph);
+                    unsigned int fileoff = diag_u32(ph + 4);
+                    if (type == 1) {
+                        printf("DIAG segment=%u vaddr=%08x filesz=%u memsz=%u align=%u\n",
+                            j, diag_u32(ph + 8), diag_u32(ph + 16),
+                            diag_u32(ph + 20), diag_u32(ph + 28));
+                    }
+                    /* Preserve the existing IRX-name convention, with a
+                     * conservative offset limit and bounded text output. */
+                    if (j == 0 && fileoff <= 4096) {
+                        char name[48];
+                        unsigned int i;
+                        const unsigned char *src = base + fileoff + 0x1a;
+                        for (i = 0; i < sizeof(name) - 1 && src[i] >= 32 && src[i] <= 126; i++)
+                            name[i] = src[i];
+                        name[i] = 0;
+                        printf("DIAG module=%s rv=%d\n", name, result);
+                    }
+                }
+            }
+        }
     }
     return result;
 }
