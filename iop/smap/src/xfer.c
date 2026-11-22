@@ -7,6 +7,7 @@
 
 #include "xfer.h"
 #include "main.h"
+#include "online_mux.h"
 
 extern struct SmapDriverData SmapDriverData;
 extern u16 g_dma_max_block_size;
@@ -20,6 +21,9 @@ static uint16_t g_hdr_read_bytes = 0;
 static int (*g_rx_callback)(uint16_t len, const uint8_t *hdr, uint16_t hdr_len) = NULL;
 static int (*g_game_rx_callback)(uint16_t len, const uint8_t *hdr, uint16_t hdr_len) = NULL;
 static uint32_t g_host_ip = 0;
+static int (*g_game_rx_owner)(uint16_t,const uint8_t *,uint16_t)=0;
+static uint16_t g_host_udp_ports[4];
+static unsigned g_host_udp_count;
 
 
 static void Dev9PreDmaCbHandler(int bcr, int dir)
@@ -106,15 +110,31 @@ int smap_register_rx_callback(int (*cb)(uint16_t len, const uint8_t *hdr, uint16
     return 0;
 }
 
-int smap_register_game_rx_callback(int (*cb)(uint16_t len, const uint8_t *hdr, uint16_t hdr_len))
+/* Keep one EENET owner from being displaced by a second game shim. */
+int smap_register_game_rx_callback(int (*cb)(uint16_t,const uint8_t *,uint16_t))
 {
-    int OldState;
-
-    CpuSuspendIntr(&OldState);
-    g_game_rx_callback = cb;
-    CpuResumeIntr(OldState);
-
-    return 0;
+    int old; CpuSuspendIntr(&old);
+    if(g_game_rx_owner && cb!=g_game_rx_owner) { CpuResumeIntr(old); return -1; }
+    g_game_rx_callback=cb; CpuResumeIntr(old); return 0;
+}
+int smap_claim_game_rx_callback(int (*cb)(uint16_t,const uint8_t *,uint16_t))
+{
+    int old; if(!cb) return -1; CpuSuspendIntr(&old);
+    if(g_game_rx_callback && g_game_rx_callback!=cb) { CpuResumeIntr(old); return -1; }
+    g_game_rx_owner=cb; g_game_rx_callback=cb; CpuResumeIntr(old); return 0;
+}
+int smap_release_game_rx_callback(int (*cb)(uint16_t,const uint8_t *,uint16_t))
+{
+    int old; CpuSuspendIntr(&old);
+    if(!cb || g_game_rx_owner!=cb) { CpuResumeIntr(old); return -1; }
+    g_game_rx_callback=0; g_game_rx_owner=0; CpuResumeIntr(old); return 0;
+}
+int smap_reserve_host_udp_port(uint16_t port)
+{
+    unsigned i; int old; if(!port) return -1; CpuSuspendIntr(&old);
+    for(i=0;i<g_host_udp_count;++i) if(g_host_udp_ports[i]==port) { CpuResumeIntr(old); return 0; }
+    if(g_host_udp_count==4u) { CpuResumeIntr(old); return -1; }
+    g_host_udp_ports[g_host_udp_count++]=port; CpuResumeIntr(old); return 0;
 }
 
 void smap_set_host_ip(uint32_t ip)
@@ -172,50 +192,12 @@ void smap_fifo_read(uint16_t offset, void *dst, uint32_t bytes)
         *(u16 *)(d + i) = SMAP_REG16(SMAP_R_RXFIFO_DATA);
 }
 
-static void dispatch_rx_mux(uint16_t length, uint16_t hdr_len)
+static void dispatch_rx_mux(uint16_t length,uint16_t hdr_len)
 {
-    uint16_t eth_type;
-    int is_bcast;
-    int deliver_host = 0;
-    int deliver_game = 0;
-
-    if (hdr_len < 14) {
-        return;
-    }
-
-    eth_type = ((uint16_t)g_hdr_buf[12] << 8) | g_hdr_buf[13];
-    is_bcast = (g_hdr_buf[0] == 0xff && g_hdr_buf[1] == 0xff &&
-                g_hdr_buf[2] == 0xff && g_hdr_buf[3] == 0xff &&
-                g_hdr_buf[4] == 0xff && g_hdr_buf[5] == 0xff);
-
-    if (eth_type == 0x0806 || is_bcast) {
-        /* ARP and L2 broadcast frames are fanned out to both stacks */
-        deliver_host = 1;
-        deliver_game = 1;
-    } else if (eth_type == 0x0800 && hdr_len >= 34) {
-        uint32_t dst_ip = ((uint32_t)g_hdr_buf[30] << 24) |
-                          ((uint32_t)g_hdr_buf[31] << 16) |
-                          ((uint32_t)g_hdr_buf[32] << 8)  |
-                          ((uint32_t)g_hdr_buf[33]);
-
-        if (dst_ip == 0xFFFFFFFF) {
-            deliver_host = 1;
-            deliver_game = 1;
-        } else if (g_host_ip != 0 && dst_ip == g_host_ip) {
-            deliver_host = 1;
-        } else {
-            deliver_game = 1;
-        }
-    } else {
-        /* Non-IPv4 frames (PPPoE, IPv6, custom L2) go to the game shim */
-        deliver_game = 1;
-    }
-
-    if (deliver_host && g_rx_callback != NULL)
-        g_rx_callback(length, g_hdr_buf, hdr_len);
-
-    if (deliver_game && g_game_rx_callback != NULL)
-        g_game_rx_callback(length, g_hdr_buf, hdr_len);
+    unsigned targets=smap_online_targets(g_hdr_buf,hdr_len,g_host_ip,
+        g_game_rx_owner!=0,g_host_udp_ports,g_host_udp_count);
+    if((targets&SMAP_TO_HOST) && g_rx_callback) g_rx_callback(length,g_hdr_buf,hdr_len);
+    if((targets&SMAP_TO_GAME) && g_game_rx_callback) g_game_rx_callback(length,g_hdr_buf,hdr_len);
 }
 
 int HandleRxIntr(struct SmapDriverData *SmapDrivPrivData)

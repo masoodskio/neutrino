@@ -31,8 +31,8 @@ int smap_transmit(void *header, uint16_t headersize, const void *data, uint16_t 
 
 /**
  * Register (or unregister with NULL) a secondary game shim RX callback.
- * When active, SMAP demultiplexes incoming frames between ministack (matching host_ip)
- * and the game shim (other IPv4/EtherTypes), fanning out ARP and L2 broadcasts to both.
+ * An exclusive EENET owner prevents replacement by another game shim.
+ * ARP/broadcast traffic is shared; reserved storage UDP ports stay on ministack.
  */
 int smap_register_game_rx_callback(int (*cb)(uint16_t len, const uint8_t *hdr, uint16_t hdr_len));
 
@@ -69,5 +69,13 @@ void smap_set_rx_mode(uint32_t rx_mode_flags);
 #define I_smap_get_link_status           DECLARE_IMPORT(10, smap_get_link_status)
 #define I_smap_set_multicast_hash        DECLARE_IMPORT(11, smap_set_multicast_hash)
 #define I_smap_set_rx_mode               DECLARE_IMPORT(12, smap_set_rx_mode)
+
+/* Exclusive game callback ownership and storage-port reservations. */
+int smap_claim_game_rx_callback(int (*cb)(uint16_t,const uint8_t *,uint16_t));
+int smap_release_game_rx_callback(int (*cb)(uint16_t,const uint8_t *,uint16_t));
+int smap_reserve_host_udp_port(uint16_t port);
+#define I_smap_claim_game_rx_callback DECLARE_IMPORT(13, smap_claim_game_rx_callback)
+#define I_smap_release_game_rx_callback DECLARE_IMPORT(14, smap_release_game_rx_callback)
+#define I_smap_reserve_host_udp_port DECLARE_IMPORT(15, smap_reserve_host_udp_port)
 
 #endif

@@ -13,4 +13,7 @@ DECLARE_EXPORT_TABLE(smap, 1, 0)
     DECLARE_EXPORT(smap_get_link_status)
     DECLARE_EXPORT(smap_set_multicast_hash)
     DECLARE_EXPORT(smap_set_rx_mode)
+    DECLARE_EXPORT(smap_claim_game_rx_callback)
+    DECLARE_EXPORT(smap_release_game_rx_callback)
+    DECLARE_EXPORT(smap_reserve_host_udp_port)
 END_EXPORT_TABLE

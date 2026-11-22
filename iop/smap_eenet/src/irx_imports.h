@@ -1,0 +1,9 @@
+#include <irx.h>
+#include <intrman.h>
+#include <loadcore.h>
+#include <stdio.h>
+#include <sysclib.h>
+#include <thbase.h>
+#include <thsemap.h>
+#include <sifcmd.h>
+#include "smap.h"
