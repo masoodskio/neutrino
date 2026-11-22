@@ -27,15 +27,10 @@ env = ["EE"]
 [[module]]
 file = "smap_inet.irx"
 env = ["EE"]
+[[module]]
+file = "smap_eenet.irx"
+env = ["EE"]
 
-# Faking strategy
-# ---------------
-# - dev9 (no-shutdown) is resident so the game can use HDD (or atad_emu) and network
-# - SMAP.IRX is intercepted dynamically by smap_inet.irx and backed by Neutrino's shared smap.irx mux
-# - ENT_SMAP.IRX (libeenet) remains faked until a companion ent_smap shim is added
-[[fake]]
-file = "ENT_SMAP.IRX"
-name = "ent_smap"
-version = 0x021f
-loadrv = 0 # 0=ok, -xxx=error code (module not loaded)
-startrv = 2 # 0=RESIDENT_END, 1=NO_RESIDENT_END, 2=REMOVABLE_END
+# The no-shutdown DEV9 driver keeps the adapter available to both stacks.
+# INET SMAP.IRX is intercepted by smap_inet.irx.
+# EENET ENT_SMAP.IRX is intercepted by smap_eenet.irx, not faked.
