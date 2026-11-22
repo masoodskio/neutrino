@@ -1,0 +1,41 @@
+# Name of loaded config, to show to user
+name = "UDPFS driver with online play support"
+
+# Drivers this driver depends on (config file must exist)
+depends = ["i_dev9_ns"]
+
+# Modules to load
+[[module]]
+file = "iomanX.irx"
+env = ["LE"]
+[[module]]
+file = "fileXio.irx"
+env = ["LE"]
+[[module]]
+file = "smap.irx"
+env = ["LE", "EE"]
+[[module]]
+file = "ministack.irx"
+args = ["ip=192.168.1.10"]
+env = ["LE", "EE"]
+[[module]]
+file = "udpfs_ioman.irx"
+env = ["LE"]
+[[module]]
+file = "udpfs_fhi.irx"
+env = ["EE"]
+[[module]]
+file = "smap_inet.irx"
+env = ["EE"]
+
+# Faking strategy
+# ---------------
+# - dev9 (no-shutdown) is resident so the game can use HDD (or atad_emu) and network
+# - SMAP.IRX is intercepted dynamically by smap_inet.irx and backed by Neutrino's shared smap.irx mux
+# - ENT_SMAP.IRX (libeenet) remains faked until a companion ent_smap shim is added
+[[fake]]
+file = "ENT_SMAP.IRX"
+name = "ent_smap"
+version = 0x021f
+loadrv = 0 # 0=ok, -xxx=error code (module not loaded)
+startrv = 2 # 0=RESIDENT_END, 1=NO_RESIDENT_END, 2=REMOVABLE_END

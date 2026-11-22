@@ -3,6 +3,7 @@ name: CI-compile
 on:
   push:
   pull_request:
+  workflow_dispatch:
 
 jobs:
   build:
@@ -14,10 +15,40 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Compile
+      - name: Build clean adapter-identity candidate
         run: |
+          set -eu
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
-          make clean all release
+          # Materialize only the existing shared-driver integration, not diagnostic stages.
+          direct_source=$(mktemp -d)
+          cp iop/smap_eenet/src/main.c iop/smap_eenet/src/adapter.c iop/smap_eenet/src/adapter.h "$direct_source/"
+          cp iop/smap_eenet/Makefile "$direct_source/Makefile"
+          rm iop/smap_eenet/src/main.c iop/smap_eenet/src/adapter.c iop/smap_eenet/src/adapter.h iop/smap_eenet/Makefile
+          python3 pc/prepare_eent_candidate.py
+          python3 pc/eent_candidate.py --check
+          python3 pc/eent_candidate.py --apply
+          for name in main.c adapter.c adapter.h; do
+            cp "$direct_source/$name" "iop/smap_eenet/src/$name"
+            cmp "$direct_source/$name" "iop/smap_eenet/src/$name"
+          done
+          cp "$direct_source/Makefile" iop/smap_eenet/Makefile
+          cmp "$direct_source/Makefile" iop/smap_eenet/Makefile
+          make clean all release IOPCORE_DEBUG=0 EESIO_DEBUG=0 DEBUG=0
+          test -s ee/loader/modules/smap_eenet.irx
+          test -s ee/loader/modules/smap_inet.irx
+          test -s ee/loader/modules/ee_core.elf
+          grep -aFq 'Ethernet (Network Adaptor)' ee/loader/modules/smap_inet.irx
+          if grep -aEq 'EENT-(D |CFG|EE|RPC)|DIAG (ctl|load|segment|module|attached)' ee/loader/modules/smap_eenet.irx ee/loader/modules/smap_inet.irx; then
+            echo 'Unexpected diagnostic instrumentation in release modules' >&2
+            exit 1
+          fi
+          readelf -SW ee/loader/modules/ee_core.elf > "$direct_source/ee-sections.txt"
+          if grep -Fq '.eent_trace' "$direct_source/ee-sections.txt"; then
+            echo 'Unexpected EE activation trace in release core' >&2
+            exit 1
+          fi
+          sha256sum ee/loader/modules/smap_eenet.irx ee/loader/modules/smap_inet.irx ee/loader/modules/ee_core.elf
+          rm -rf "$direct_source"
 
       - name: Upload release as artifact
         if: ${{ success() }}
