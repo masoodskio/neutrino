@@ -289,14 +289,25 @@ CHD    | `.chd`    | zlib/lzma/huff/flac  | `apt install libchdr0`
 
 This branch has experimental online-play support while loading a game over UDPFS. The storage driver and the game's network stack share the PS2's Ethernet adapter through INET/EENET shims. This is not a general compatibility guarantee, and this online-play setup supports UDPFS only.
 
-### Requirements and installation
+### Download and install for a normal UDPFS launcher
 
-1. Back up your working Neutrino executable, `modules/`, `config/`, and memory-card network profiles.
-2. Download the release archive from a successful GitHub Actions run of this branch. Install `neutrino.elf` and the matching files in `modules/` into the directory used by your frontend, for example `APPS/NHDDL/`. Keep the files from the same build together; replacing the executable alone does not update external modules.
-3. Make sure the module set includes `smap.irx`, `ministack.irx`, `udpfs_ioman.irx`, `udpfs_fhi.irx`, `smap_inet.irx`, `smap_eenet.irx`, and `ee_core.elf`, along with the other supplied dependencies.
-4. Use the build artifact's `config/bsd-udpfs-net.toml`, preserving your local IP changes and other required custom settings. Do not overwrite your entire configuration directory with defaults. The online backend depends on `i_dev9_ns`; keep its supplied configuration and modules available.
+This is the setup used with a normal UDPFS frontend launch, such as the tested NHDDL setup. It does not require custom `-bsd=udpfs-net` launch arguments.
 
-The packaged online TOML must contain both shim module entries:
+1. Open this repository's GitHub Actions page, select a successful `CI-compile` run for the `udpfs-online-identity-clean` branch, and download its build artifact. Extract the artifact and the release `.7z` inside it. Do not use the source-code ZIP as the installation package.
+2. Back up your working frontend/Neutrino installation, including `neutrino.elf`, `modules/`, `config/`, and your memory-card network profiles. Keep your frontend executable and settings.
+3. Copy the archive's `neutrino.elf` and matching files from `modules/` into the active installation used by your frontend, for example `APPS/NHDDL/`. Keep files from the same build together; replacing the executable alone does not update external modules. The set must include `smap.irx`, `ministack.irx`, `udpfs_ioman.irx`, `udpfs_fhi.irx`, `smap_inet.irx`, `smap_eenet.irx`, and `ee_core.elf`, plus the other supplied dependencies.
+4. Copy the archive's `config/bsd-udpfs-net.toml` into the installation's `config/` directory, but name the installed copy `bsd-udpfs.toml`, replacing the old file only after backing it up:
+
+   ```text
+   Archive:    config/bsd-udpfs-net.toml
+   Install as: APPS/NHDDL/config/bsd-udpfs.toml
+   ```
+
+   Use your frontend's actual active configuration directory if it differs from this example. Merely placing `bsd-udpfs-net.toml` beside the ordinary file does not enable online support for a normal UDPFS launch.
+5. In the installed `bsd-udpfs.toml`, reapply your working `ministack.irx` IP arguments and any other required local customizations from the backup. For a new installation, set an appropriate PS2 storage-stack IP as described below. Do not overwrite your entire configuration directory with defaults. Make sure the supplied `config/i_dev9_ns.toml` is available, along with its module dependencies; the online configuration uses `depends = ["i_dev9_ns"]`.
+6. Start the PC server, fully restart the PS2, and launch your UDPFS game normally through the frontend as described below. No changes to your saved network profile are required just to install the build.
+
+The active `bsd-udpfs.toml` must contain both shim module entries:
 
 ```toml
 [[module]]
@@ -308,7 +319,9 @@ file = "smap_eenet.irx"
 env = ["EE"]
 ```
 
-Remove any complete `[[fake]]` block whose `file` is `ENT_SMAP.IRX`; the EENET shim must intercept that module instead. Keep unrelated fake-module entries. The CI build prepares this configuration when packaging the candidate. The repository's unprocessed TOML template may still contain the older fake entry, so prefer the successful build artifact or merge these changes explicitly.
+It must not contain a `[[fake]]` block whose `file` is `ENT_SMAP.IRX`; the EENET shim must intercept that module instead. Keep unrelated fake-module entries. The CI build prepares the online configuration in the artifact. The repository's unprocessed TOML template may still contain the older fake entry, so use the successful build artifact rather than copying the raw source template.
+
+This filename replacement enables the experimental online module set for ordinary UDPFS launches in that installation. To undo it, restore your backed-up configuration and matching working binaries.
 
 ### Start the UDPFS server and configure networking
 
@@ -318,9 +331,15 @@ On the PC, share the directory containing your game images:
 python pc/udpfs_server.py -d /path/to/ps2games
 ```
 
-In the release archive, the script is under `udpfs_server/` instead of `pc/`; run it from that location with its bundled `compressed_iso/` directory present. Keep the server running while playing. Allow its UDP traffic through the PC firewall on your trusted local network, and make sure the PS2 can reach the PC. Do not expose the file server to the public internet.
+In the release archive, the script is under `udpfs_server/` instead of `pc/`; for example, from the extracted release directory run:
 
-In the active `bsd-udpfs-net.toml`, retain or set the PS2 storage stack's address in the `ministack.irx` entry:
+```sh
+python udpfs_server/udpfs_server.py -d /path/to/ps2games
+```
+
+Python 3 is required; use `python3` instead of `python` if that is its name on your PC. Keep the bundled `compressed_iso/` directory beside the server script and leave the server running while playing. Allow its UDP traffic through the PC firewall on your trusted local network, and make sure the PS2 can reach the PC. Do not expose the file server to the public internet.
+
+In the active `config/bsd-udpfs.toml`, retain or set the PS2 storage stack's address in the `ministack.irx` entry:
 
 ```toml
 [[module]]
@@ -335,15 +354,25 @@ For online play, the game's network path also needs access to its supported serv
 
 ### Launch and connect
 
-Select the online backend explicitly rather than relying on ordinary UDPFS auto-detection:
+After installing the online configuration as `bsd-udpfs.toml`, select and start the game through your frontend's normal UDPFS launch. The equivalent basic command is:
+
+```sh
+neutrino.elf -dvd="udpfs:DVD/Game.iso"
+```
+
+The example path is relative to the server's shared directory: `/path/to/ps2games/DVD/Game.iso` on the PC becomes `udpfs:DVD/Game.iso` on the PS2. Ordinary UDPFS selection loads `bsd-udpfs.toml`, which is why the filename replacement above is required for this method.
+
+Fully restart the PS2 after changing binaries. Boot the game, select a working memory-card network profile, and follow the game's community-server instructions for any required game-specific settings or patches. This feature does not restore a discontinued server by itself. Keep an existing working profile; if testing a new profile, save it separately instead of overwriting the working one.
+
+### Alternative: explicit online backend selection
+
+If you control the launch arguments, you can leave the online configuration named `config/bsd-udpfs-net.toml` and select it explicitly instead of replacing `bsd-udpfs.toml`:
 
 ```sh
 neutrino.elf -bsd=udpfs-net -dvd="udpfs:DVD/Game.iso"
 ```
 
-The example path is relative to the server's shared directory. Configure your frontend to pass the equivalent backend selection and game path. A `udpfs:` path alone auto-selects the ordinary `udpfs` backend, not `udpfs-net`.
-
-Fully restart the PS2 after changing binaries. Boot the game, select a working memory-card network profile, and follow the game's community-server instructions for any required game-specific settings or patches. This feature does not restore a discontinued server by itself. Keep an existing working profile; if testing a new profile, save it separately instead of overwriting the working one.
+For this alternative only, put your IP settings in `bsd-udpfs-net.toml`. Use one method consistently: normal UDPFS launch with the online configuration installed as `bsd-udpfs.toml`, or explicit `-bsd=udpfs-net` with `bsd-udpfs-net.toml`. The explicit flag is not needed for the normal-launcher instructions above.
 
 ### Experimental status and known limitations
 
