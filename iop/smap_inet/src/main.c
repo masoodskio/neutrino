@@ -18,6 +18,7 @@ IRX_ID(MODNAME, 1, 0);
 #define SHIM_MOD_NAME "INET_SMAP_driver"
 #define SHIM_MOD_VERSION 0x0219
 
+/* Dynamic netdev function pointers resolved from the game's inet.irx */
 typedef int (*fn_RegisterNetDevice)(sceInetDevOps_t *ops);
 typedef int (*fn_UnregisterNetDevice)(sceInetDevOps_t *ops);
 typedef void (*fn_PktEnQ)(sceInetPktQ_t *que, sceInetPkt_t *pkt);
@@ -30,6 +31,7 @@ static fn_PktEnQ g_netdev_pkt_enq = NULL;
 static fn_PktDeQ g_netdev_pkt_deq = NULL;
 static fn_AllocPkt g_netdev_alloc_pkt = NULL;
 static fn_FreePkt g_netdev_free_pkt = NULL;
+/* MODLOAD hooks */
 static int (*org_LoadStartModule)(char *, int, char *, int *);
 static int (*org_StartModule)(int, char *, int, char *, int *);
 static int (*org_LoadModuleBuffer)(void *);
@@ -37,12 +39,14 @@ static int (*org_StopModule)(int, int, char *, int *);
 static int (*org_UnloadModule)(int);
 static int (*org_SearchModuleByName)(const char *);
 static int (*org_ReferModuleStatus)(int, ModuleStatus *);
+/* Virtual INET device state */
 static sceInetDevOps_t g_dev_ops;
 static int g_attached = 0, g_started = 0, g_thread_pri = 16;
 static u32 g_rx_packets, g_tx_packets, g_rx_bytes, g_tx_bytes, g_rx_dropped;
 static int is_smap_path(const char *path)
 {
     if (path == NULL) return 0;
+    /* Avoid matching ENT_SMAP.IRX which belongs to libeenet */
     if (strstr(path, "ENT_SMAP") || strstr(path, "ent_smap")) return 0;
     return strstr(path, "SMAP.IRX") != NULL || strstr(path, "smap.irx") != NULL;
 }
@@ -98,6 +102,7 @@ static int smap_inet_stop(void *priv, int flags)
     g_started = 0;
     g_dev_ops.flags &= ~(sceInetDevF_Up | sceInetDevF_Running);
     smap_register_game_rx_callback(NULL);
+    /* Drain any pending TX packets cleanly */
     if (g_netdev_pkt_deq != NULL && g_netdev_free_pkt != NULL) {
         sceInetPkt_t *pkt;
         while ((pkt = g_netdev_pkt_deq(&g_dev_ops.sndq)) != NULL)
@@ -144,7 +149,7 @@ static int smap_inet_control(void *priv, int code, void *ptr, int len)
         smap_get_link_status(NULL, &link_mode);
         *(int *)ptr = (int)link_mode | sceInetNDNEGO_AUTO; return 0;
     case sceInetNDCC_SET_NEGO_MODE:
-        /* Neutrino owns shared PHY negotiation. */
+        /* Do not reset PHY; Neutrino owns physical link negotiation */
         return 0;
     case sceInetNDCC_SET_MULTICAST_LIST: {
         uint32_t hash[4] = {0, 0, 0, 0};
@@ -184,7 +189,7 @@ static int smap_inet_attach(void)
     iop_library_t *lib_netdev;
     if (g_attached) return 0;
     lib_netdev = ioplib_getByName("netdev\0\0");
-    if (lib_netdev == NULL || ioplib_getTableSize(lib_netdev) < 14) return -200;
+    if (lib_netdev == NULL || ioplib_getTableSize(lib_netdev) < 14) return -200; /* KE_LINKERR */
     g_netdev_register = (fn_RegisterNetDevice)lib_netdev->exports[4];
     g_netdev_unregister = (fn_UnregisterNetDevice)lib_netdev->exports[5];
     g_netdev_pkt_enq = (fn_PktEnQ)lib_netdev->exports[8];
@@ -271,7 +276,7 @@ static int Hook_UnloadModule(int id)
 }
 static int Hook_SearchModuleByName(const char *modname)
 {
-    if (is_smap_modname(modname)) return g_attached ? SHIM_FAKE_MOD_ID : -202;
+    if (is_smap_modname(modname)) return g_attached ? SHIM_FAKE_MOD_ID : -202; /* KE_UNKNOWN_MODULE */
     return org_SearchModuleByName(modname);
 }
 static int Hook_ReferModuleStatus(int id, ModuleStatus *status)
