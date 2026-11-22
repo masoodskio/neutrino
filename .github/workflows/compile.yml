@@ -18,6 +18,7 @@ jobs:
       - name: Compile experimental EENET candidate
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 pc/prepare_eent_candidate.py
           python3 pc/eent_candidate.py --check
           python3 pc/eent_candidate.py --apply
           make clean all release
