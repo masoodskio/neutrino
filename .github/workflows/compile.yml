@@ -15,10 +15,14 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Compile
+      - name: Compile experimental EENET candidate
         run: |
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          python3 pc/eent_candidate.py --check
+          python3 pc/eent_candidate.py --apply
           make clean all release
+          test -s iop/smap_eenet/irx/smap_eenet.irx
+          test -s ee/loader/modules/smap_eenet.irx
 
       - name: Upload release as artifact
         if: ${{ success() }}
