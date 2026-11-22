@@ -27,6 +27,8 @@ jobs:
           python3 pc/runtime_eent_rpc.py
           python3 pc/trace_eenet_config.py --check
           python3 pc/trace_eenet_config.py
+          python3 pc/fix_eenet_control.py --check
+          python3 pc/fix_eenet_control.py
           make clean all release
           test -s iop/smap_eenet/irx/smap_eenet.irx
           test -s ee/loader/modules/smap_eenet.irx
