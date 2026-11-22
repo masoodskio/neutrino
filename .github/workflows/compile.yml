@@ -21,6 +21,8 @@ jobs:
           python3 pc/prepare_eent_candidate.py
           python3 pc/eent_candidate.py --check
           python3 pc/eent_candidate.py --apply
+          python3 pc/diagnose_eent_candidate.py --check
+          python3 pc/diagnose_eent_candidate.py
           make clean all release
           test -s iop/smap_eenet/irx/smap_eenet.irx
           test -s ee/loader/modules/smap_eenet.irx
