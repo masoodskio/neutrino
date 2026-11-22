@@ -15,9 +15,15 @@ jobs:
           fetch-depth: 0
           submodules: true
 
-      - name: Compile experimental EENET candidate
+      - name: Compile checked-in EENET experiment
         run: |
+          set -eu
           git config --global --add safe.directory "$GITHUB_WORKSPACE"
+          # Preserve authoritative C files while materializing unchanged legacy integration.
+          # No new generator stage: the checked-in files are restored and verified before make.
+          direct_source=$(mktemp -d)
+          cp iop/smap_eenet/src/main.c iop/smap_eenet/src/adapter.c iop/smap_eenet/src/adapter.h "$direct_source/"
+          rm iop/smap_eenet/src/main.c iop/smap_eenet/src/adapter.c iop/smap_eenet/src/adapter.h
           python3 pc/prepare_eent_candidate.py
           python3 pc/eent_candidate.py --check
           python3 pc/eent_candidate.py --apply
@@ -31,6 +37,14 @@ jobs:
           python3 pc/fix_eenet_control.py
           python3 pc/trace_eent_ee.py --check
           python3 pc/trace_eent_ee.py
+          cp "$direct_source/main.c" iop/smap_eenet/src/main.c
+          cp "$direct_source/adapter.c" iop/smap_eenet/src/adapter.c
+          cp "$direct_source/adapter.h" iop/smap_eenet/src/adapter.h
+          cmp "$direct_source/main.c" iop/smap_eenet/src/main.c
+          cmp "$direct_source/adapter.c" iop/smap_eenet/src/adapter.c
+          cmp "$direct_source/adapter.h" iop/smap_eenet/src/adapter.h
+          sha256sum iop/smap_eenet/src/main.c iop/smap_eenet/src/adapter.c iop/smap_eenet/src/adapter.h
+          rm -rf "$direct_source"
           make clean all release
           python3 pc/trace_eent_ee.py --verify-build
           test -s iop/smap_eenet/irx/smap_eenet.irx
