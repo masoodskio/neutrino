@@ -285,6 +285,74 @@ ZSO    | `.zso`    | LZ4                  | `pip install lz4`
 CSO    | `.cso`    | zlib                 | none
 CHD    | `.chd`    | zlib/lzma/huff/flac  | `apt install libchdr0`
 
+## Online play (experimental, UDPFS only)
+
+This branch has experimental online-play support while loading a game over UDPFS. The storage driver and the game's network stack share the PS2's Ethernet adapter through INET/EENET shims. This is not a general compatibility guarantee, and this online-play setup supports UDPFS only.
+
+### Requirements and installation
+
+1. Back up your working Neutrino executable, `modules/`, `config/`, and memory-card network profiles.
+2. Download the release archive from a successful GitHub Actions run of this branch. Install `neutrino.elf` and the matching files in `modules/` into the directory used by your frontend, for example `APPS/NHDDL/`. Keep the files from the same build together; replacing the executable alone does not update external modules.
+3. Make sure the module set includes `smap.irx`, `ministack.irx`, `udpfs_ioman.irx`, `udpfs_fhi.irx`, `smap_inet.irx`, `smap_eenet.irx`, and `ee_core.elf`, along with the other supplied dependencies.
+4. Use the build artifact's `config/bsd-udpfs-net.toml`, preserving your local IP changes and other required custom settings. Do not overwrite your entire configuration directory with defaults. The online backend depends on `i_dev9_ns`; keep its supplied configuration and modules available.
+
+The packaged online TOML must contain both shim module entries:
+
+```toml
+[[module]]
+file = "smap_inet.irx"
+env = ["EE"]
+
+[[module]]
+file = "smap_eenet.irx"
+env = ["EE"]
+```
+
+Remove any complete `[[fake]]` block whose `file` is `ENT_SMAP.IRX`; the EENET shim must intercept that module instead. Keep unrelated fake-module entries. The CI build prepares this configuration when packaging the candidate. The repository's unprocessed TOML template may still contain the older fake entry, so prefer the successful build artifact or merge these changes explicitly.
+
+### Start the UDPFS server and configure networking
+
+On the PC, share the directory containing your game images:
+
+```sh
+python pc/udpfs_server.py -d /path/to/ps2games
+```
+
+In the release archive, the script is under `udpfs_server/` instead of `pc/`; run it from that location with its bundled `compressed_iso/` directory present. Keep the server running while playing. Allow its UDP traffic through the PC firewall on your trusted local network, and make sure the PS2 can reach the PC. Do not expose the file server to the public internet.
+
+In the active `bsd-udpfs-net.toml`, retain or set the PS2 storage stack's address in the `ministack.irx` entry:
+
+```toml
+[[module]]
+file = "ministack.irx"
+args = ["ip=192.168.1.10"]
+env = ["LE", "EE"]
+```
+
+`192.168.1.10` is only an example, not a required address and not the PC server's address. Use an appropriate address for your LAN, avoid conflicts with other devices, and preserve known-working IP settings when upgrading. The game's saved network profile is configured separately; editing this TOML does not update the profile's IP, gateway, or DNS settings.
+
+For online play, the game's network path also needs access to its supported server. A direct PS2-to-PC connection that can serve an ISO does not by itself provide internet access; use a suitable LAN/router connection or an already-working PC routing/sharing setup.
+
+### Launch and connect
+
+Select the online backend explicitly rather than relying on ordinary UDPFS auto-detection:
+
+```sh
+neutrino.elf -bsd=udpfs-net -dvd="udpfs:DVD/Game.iso"
+```
+
+The example path is relative to the server's shared directory. Configure your frontend to pass the equivalent backend selection and game path. A `udpfs:` path alone auto-selects the ordinary `udpfs` backend, not `udpfs-net`.
+
+Fully restart the PS2 after changing binaries. Boot the game, select a working memory-card network profile, and follow the game's community-server instructions for any required game-specific settings or patches. This feature does not restore a discontinued server by itself. Keep an existing working profile; if testing a new profile, save it separately instead of overwriting the working one.
+
+### Experimental status and known limitations
+
+- An earlier development build (`111254b`) reached the lobby and joined a match in Star Wars Battlefront II v1.01 (`SLUS_212.40`) over UDPFS using an existing `SCE/Ethernet` profile. This is a limited hardware test, not certification of every subsequent build or every game.
+- Network setup can still show a greyed-out `SCE/SMAP` entry. Device identity/profile matching remains under investigation; do not delete a working profile merely to remove that entry. Ratchet & Clank online compatibility is not confirmed.
+- Stop/unload and repeated network-stack entry are not fully supported. Restart the console between failed attempts rather than relying on repeated online-menu re-entry.
+- UDPFS disc reads and game packets share Ethernet and IOP resources. Heavy reads can cause contention; sustained gameplay performance has not been comprehensively measured.
+- Keep a known-working backup and report the build commit, game ID/version, frontend, and whether failure occurs during boot, network setup, login, or gameplay. Do not publish passwords or other private network credentials.
+
 ## Third-Party Loaders
 The following third-party projects use neutrino:
 
