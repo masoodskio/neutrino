@@ -20,33 +20,6 @@
 #include "main.h"
 #include "xfer.h"
 
-/*  There is a difference in how the transmissions are made,
-    between this driver and the SONY original.
-
-    SONY:
-        1. NETDEV calls SMAP's xmit callback.
-        2. SMAP's xmit event handler issues that XMIT event (for the main thread).
-        3. XMIT event copies the frames to the Tx buffer and sets up the BDs.
-        4. Tx DNV handler is called (always, regardless of what event it is being handled!).
-        5. Interrupts are re-enabled, except for TXDNV.
-        6. If there are frames to transmit, write to TX_GNP_0 and enable the TXDNV interrupt
-
-        The TXDNV interrupt is hence always disabled, but only enabled when a frame(s) is sent.
-        Perhaps there is a lack of a check on the TXEND interrupt because it is polling on the TX BDs before every transmission.
-        Might be related to the TXEND/RXEND event race condition that was documented within the PS2Linux SMAP driver.
-
-        I don't know how to test this, but it seems like the TXDNV interrupt is asserted for as long as
-        there is no valid frame to transmit, hence this design by SONY.
-
-    Homebrew:
-        1. Network stack calls SMAPSendPacket().
-        2. If there is either insufficient space or no BD available, wait.
-        3. Frame is copied into the Tx buffer and a BD is set up.
-        4. SMAPSendPacket issues the XMIT event (for the main thread)
-        5. Tx DNV handler is called (always, regardless of what event it is being handled!).
-        6. Interrupts are re-enabled, except for TXDNV.
-        7. If there are frames to transmit, write to TX_GNP_0 and enable the TXDNV interrupt */
-
 #define DEV9_SMAP_ALL_INTR_MASK (SMAP_INTR_EMAC3 | SMAP_INTR_RXEND | SMAP_INTR_TXEND | SMAP_INTR_RXDNV | SMAP_INTR_TXDNV)
 #define DEV9_SMAP_INTR_MASK     (SMAP_INTR_EMAC3 | SMAP_INTR_RXEND | SMAP_INTR_RXDNV | SMAP_INTR_TXDNV)
 // The Tx interrupt events are handled separately
@@ -417,11 +390,6 @@ static void IntrHandlerThread(struct SmapDriverData *SmapDrivPrivData)
             ResetCounterFlag = 0;
             if (EFBits & SMAP_EVENT_INTR) {
                 if ((IntrReg = SPD_REG16(SPD_R_INTR_STAT) & DEV9_SMAP_INTR_MASK) != 0) {
-                    /*    Original order/priority:
-                            1. EMAC3
-                            2. RXEND
-                            3. RXDNV
-                            4. TXDNV */
                     if (IntrReg & SMAP_INTR_EMAC3) {
                         SMAP_REG16(SMAP_R_INTR_CLR) = SMAP_INTR_EMAC3;
                         SMAP_EMAC3_SET32(SMAP_R_EMAC3_INTR_STAT, SMAP_E3_INTR_TX_ERR_0 | SMAP_E3_INTR_SQE_ERR_0 | SMAP_E3_INTR_DEAD_0);
@@ -636,4 +604,42 @@ int SMAPGetMACAddress(uint8_t *buffer)
     buffer[5] = mac_address_lo;
 
     return 0;
+}
+
+void smap_get_link_status(uint8_t *link_status, uint8_t *link_mode)
+{
+    if (link_status != NULL)
+        *link_status = SmapDriverData.LinkStatus;
+    if (link_mode != NULL)
+        *link_mode = SmapDriverData.LinkMode;
+}
+
+void smap_set_multicast_hash(const uint32_t hash[4])
+{
+    volatile u8 *emac3_regbase = SmapDriverData.emac3_regbase;
+    int OldState;
+
+    if (hash == NULL)
+        return;
+
+    CpuSuspendIntr(&OldState);
+    SMAP_EMAC3_SET32(SMAP_R_EMAC3_GROUP_HASH1, hash[0]);
+    SMAP_EMAC3_SET32(SMAP_R_EMAC3_GROUP_HASH2, hash[1]);
+    SMAP_EMAC3_SET32(SMAP_R_EMAC3_GROUP_HASH3, hash[2]);
+    SMAP_EMAC3_SET32(SMAP_R_EMAC3_GROUP_HASH4, hash[3]);
+    CpuResumeIntr(OldState);
+}
+
+void smap_set_rx_mode(uint32_t rx_mode_flags)
+{
+    volatile u8 *emac3_regbase = SmapDriverData.emac3_regbase;
+    u32 safe_flags;
+    int OldState;
+
+    safe_flags = SMAP_E3_RX_STRIP_PAD | SMAP_E3_RX_STRIP_FCS | SMAP_E3_RX_INDIVID_ADDR | SMAP_E3_RX_BCAST;
+    safe_flags |= (rx_mode_flags & (SMAP_E3_RX_PROMISC | SMAP_E3_RX_MCAST | SMAP_E3_RX_BCAST));
+
+    CpuSuspendIntr(&OldState);
+    SMAP_EMAC3_SET32(SMAP_R_EMAC3_RxMODE, safe_flags);
+    CpuResumeIntr(OldState);
 }

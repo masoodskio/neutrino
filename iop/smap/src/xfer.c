@@ -1,11 +1,13 @@
 #include <dmacman.h>
 #include <dev9.h>
+#include <intrman.h>
 #include <thevent.h>
 #include <thsemap.h>
 #include <smapregs.h>
 
 #include "xfer.h"
 #include "main.h"
+#include "online_mux.h"
 
 extern struct SmapDriverData SmapDriverData;
 extern u16 g_dma_max_block_size;
@@ -17,6 +19,11 @@ static u16 g_current_frame_ptr = 0;
 static uint8_t g_hdr_buf[64] __attribute__((aligned(4)));
 static uint16_t g_hdr_read_bytes = 0;
 static int (*g_rx_callback)(uint16_t len, const uint8_t *hdr, uint16_t hdr_len) = NULL;
+static int (*g_game_rx_callback)(uint16_t len, const uint8_t *hdr, uint16_t hdr_len) = NULL;
+static uint32_t g_host_ip = 0;
+static int (*g_game_rx_owner)(uint16_t,const uint8_t *,uint16_t)=0;
+static uint16_t g_host_udp_ports[4];
+static unsigned g_host_udp_count;
 
 
 static void Dev9PreDmaCbHandler(int bcr, int dir)
@@ -93,9 +100,46 @@ static inline void CopyToFIFO(volatile u8 *smap_regbase, const void *buffer, uns
 
 int smap_register_rx_callback(int (*cb)(uint16_t len, const uint8_t *hdr, uint16_t hdr_len), uint16_t n_bytes)
 {
+    int OldState;
+
+    CpuSuspendIntr(&OldState);
     g_rx_callback = cb;
     g_hdr_read_bytes = (n_bytes > sizeof(g_hdr_buf)) ? sizeof(g_hdr_buf) : n_bytes;
+    CpuResumeIntr(OldState);
+
     return 0;
+}
+
+/* Keep one EENET owner from being displaced by a second game shim. */
+int smap_register_game_rx_callback(int (*cb)(uint16_t,const uint8_t *,uint16_t))
+{
+    int old; CpuSuspendIntr(&old);
+    if(g_game_rx_owner && cb!=g_game_rx_owner) { CpuResumeIntr(old); return -1; }
+    g_game_rx_callback=cb; CpuResumeIntr(old); return 0;
+}
+int smap_claim_game_rx_callback(int (*cb)(uint16_t,const uint8_t *,uint16_t))
+{
+    int old; if(!cb) return -1; CpuSuspendIntr(&old);
+    if(g_game_rx_callback && g_game_rx_callback!=cb) { CpuResumeIntr(old); return -1; }
+    g_game_rx_owner=cb; g_game_rx_callback=cb; CpuResumeIntr(old); return 0;
+}
+int smap_release_game_rx_callback(int (*cb)(uint16_t,const uint8_t *,uint16_t))
+{
+    int old; CpuSuspendIntr(&old);
+    if(!cb || g_game_rx_owner!=cb) { CpuResumeIntr(old); return -1; }
+    g_game_rx_callback=0; g_game_rx_owner=0; CpuResumeIntr(old); return 0;
+}
+int smap_reserve_host_udp_port(uint16_t port)
+{
+    unsigned i; int old; if(!port) return -1; CpuSuspendIntr(&old);
+    for(i=0;i<g_host_udp_count;++i) if(g_host_udp_ports[i]==port) { CpuResumeIntr(old); return 0; }
+    if(g_host_udp_count==4u) { CpuResumeIntr(old); return -1; }
+    g_host_udp_ports[g_host_udp_count++]=port; CpuResumeIntr(old); return 0;
+}
+
+void smap_set_host_ip(uint32_t ip)
+{
+    g_host_ip = ip;
 }
 
 /*
@@ -148,6 +192,14 @@ void smap_fifo_read(uint16_t offset, void *dst, uint32_t bytes)
         *(u16 *)(d + i) = SMAP_REG16(SMAP_R_RXFIFO_DATA);
 }
 
+static void dispatch_rx_mux(uint16_t length,uint16_t hdr_len)
+{
+    unsigned targets=smap_online_targets(g_hdr_buf,hdr_len,g_host_ip,
+        g_game_rx_owner!=0,g_host_udp_ports,g_host_udp_count);
+    if((targets&SMAP_TO_HOST) && g_rx_callback) g_rx_callback(length,g_hdr_buf,hdr_len);
+    if((targets&SMAP_TO_GAME) && g_game_rx_callback) g_game_rx_callback(length,g_hdr_buf,hdr_len);
+}
+
 int HandleRxIntr(struct SmapDriverData *SmapDrivPrivData)
 {
     USE_SMAP_RX_BD;
@@ -174,7 +226,14 @@ int HandleRxIntr(struct SmapDriverData *SmapDrivPrivData)
                 SMAP_REG16(SMAP_R_RXFIFO_RD_PTR) = pointer + LengthRounded;
             } else {
                 g_current_frame_ptr = pointer;
-                if (g_hdr_read_bytes > 0) {
+
+                if (g_game_rx_callback != NULL) {
+                    uint16_t want = (g_hdr_read_bytes >= 44) ? g_hdr_read_bytes : 44;
+                    uint16_t hdr_len = (want < length) ? want : length;
+                    smap_fifo_read(0, g_hdr_buf, (hdr_len + 3) & ~3);
+                    dispatch_rx_mux(length, hdr_len);
+                    SMAP_REG16(SMAP_R_RXFIFO_RD_PTR) = pointer + LengthRounded;
+                } else if (g_hdr_read_bytes > 0) {
                     uint16_t hdr_len = (g_hdr_read_bytes < length) ? g_hdr_read_bytes : length;
                     smap_fifo_read(0, g_hdr_buf, hdr_len);
                     if (g_rx_callback == NULL || g_rx_callback(length, g_hdr_buf, hdr_len) < 0)
@@ -188,6 +247,7 @@ int HandleRxIntr(struct SmapDriverData *SmapDrivPrivData)
             SMAP_REG8(SMAP_R_RXFIFO_FRAME_DEC) = 0;
             PktBdPtr->ctrl_stat = SMAP_BD_RX_EMPTY;
             SmapDrivPrivData->RxBDIndex++;
+            NumPacketsReceived++;
         } else
             break;
     }

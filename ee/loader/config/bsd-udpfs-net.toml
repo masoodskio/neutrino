@@ -1,0 +1,36 @@
+# Name of loaded config, to show to user
+name = "UDPFS driver with online play support"
+
+# Drivers this driver depends on (config file must exist)
+depends = ["i_dev9_ns"]
+
+# Modules to load
+[[module]]
+file = "iomanX.irx"
+env = ["LE"]
+[[module]]
+file = "fileXio.irx"
+env = ["LE"]
+[[module]]
+file = "smap.irx"
+env = ["LE", "EE"]
+[[module]]
+file = "ministack.irx"
+args = ["ip=192.168.1.10"]
+env = ["LE", "EE"]
+[[module]]
+file = "udpfs_ioman.irx"
+env = ["LE"]
+[[module]]
+file = "udpfs_fhi.irx"
+env = ["EE"]
+[[module]]
+file = "smap_inet.irx"
+env = ["EE"]
+[[module]]
+file = "smap_eenet.irx"
+env = ["EE"]
+
+# The no-shutdown DEV9 driver keeps the adapter available to both stacks.
+# INET SMAP.IRX is intercepted by smap_inet.irx.
+# EENET ENT_SMAP.IRX is intercepted by smap_eenet.irx, not faked.

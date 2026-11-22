@@ -56,6 +56,9 @@ int _start(int argc, char *argv[])
         }
     }
 
+    /* Inform SMAP of ministack's IP for dual-IP RX demultiplexing */
+    smap_set_host_ip(ms_ip_get_ip());
+
     udptty_init();
 
     if (RegisterLibraryEntries(&_exp_mstack) != 0) {

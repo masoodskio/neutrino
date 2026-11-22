@@ -25,8 +25,18 @@ int smap_transmit(void *header, uint16_t headersize, const void *data, uint16_t 
 int smap_register_rx_callback(int (*cb)(uint16_t len, const uint8_t *hdr, uint16_t hdr_len), uint16_t n_bytes);
 
 /**
+ * Register (or unregister with NULL) a secondary callback for game network shims.
+ */
+int smap_register_game_rx_callback(int (*cb)(uint16_t len, const uint8_t *hdr, uint16_t hdr_len));
+
+/**
+ * Set ministack's IPv4 address (host byte order) for dual-IP RX demultiplexing.
+ */
+void smap_set_host_ip(uint32_t ip);
+
+/**
  * Read bytes from the current RX frame in the SMAP FIFO.
- * Must be called from within the RX callback registered via smap_register_rx_callback.
+ * Must be called from within an RX callback.
  * Uses DMA for large transfers (>= 64 bytes), PIO otherwise.
  * @param offset Frame-relative byte offset (0 = start of Ethernet header)
  * @param dst    Destination buffer (must be 4-byte aligned for DMA path)
